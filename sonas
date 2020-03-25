@@ -1,0 +1,96 @@
+#!/bin/bash
+## CONFIGURATION
+
+### Plugins directory of your Nessus install:
+NESSUS_PLUGINS_DIR="/cygdrive/c/ProgramData/Tenable/Nessus/nessus/plugins"
+# NESSUS_PLUGINS_DIR="/opt/nessus/plugins/" # For linux installations
+
+### File to save our indexes to
+DATABASE_FILE="$HOME/.nasl_indexes.db.txt"
+
+######################################
+## -- DO NOT EDIT PAST THIS LINE -- ##
+######################################
+echo '   [.. ..'
+echo ' [..    [..'
+echo '  [..         [..    [.. [..      [..     [....'
+echo '    [..     [..  [..  [..  [..  [..  [.. [..'
+echo '       [.. [..    [.. [..  [.. [..   [..   [...'
+echo ' [..    [.. [..  [..  [..  [.. [..   [..     [..'
+echo '   [.. ..     [..    [...  [..   [.. [...[.. [..'
+echo ''
+echo '  An unoffical NASL explorer. '
+echo ''
+
+if [ -z "$1" ]; then
+  echo "usage: $0 search_regex"
+  echo ''
+  echo '  search_regex  the regex that needs to match either a plugin name or function name'
+  echo "                WARN: By default doesn't do fuzzy matching, prefix/suffix your term with .*"
+  echo ''
+  echo 'NOTE: edit NESSUS_PLUGINS_DIR and DATABASE_FILE in this script before running'
+  echo ''
+  echo 'Examples:'
+  echo " $0 'Unsupported Windows OS \(remote\)'  # Exact match, but with escaped brackets"
+  echo " $0 'LibreOffice < 3.6.7 .*'             # Fuzzy match"
+  echo " $0 '.*nmap.*'                           # Fuzzy match prefix and suffix"
+  echo " $0 'get_kb_item_or_exit'                # Searching functions works too!"
+  exit
+fi
+
+if [ ! -d $NESSUS_PLUGINS_DIR ]; then
+  echo "Invalid NESSUS_PLUGINS_DIR configured, directory doesn't exist!"
+  exit
+fi
+
+# Do a basic check for a file we would expect to be there, avoid misconfiguration
+if [ ! -f $NESSUS_PLUGINS_DIR/compat.inc ]; then
+  echo "Invalid NESSUS_PLUGINS_DIR configured, compat.inc file not found!"
+  exit
+fi
+
+cd $NESSUS_PLUGINS_DIR
+
+# Create the database if its not there yet
+if [ ! -f $DATABASE_FILE ]; then
+  echo 'Database file not found, indexing... (this will take a couple of minutes)'
+  echo ' Step 1/2: Indexing Plugins...'
+  find . -name '*.nasl' | xargs grep -HoPRn 'script_name.*?english:"\K[^"]+' > $DATABASE_FILE
+  echo ' Step 1/2: Complete'
+  echo ' Step 2/2: Indexing functions...'
+  find . -name '*.inc' | xargs grep -HoPRn 'function \K[^"(]+' >> $DATABASE_FILE
+  echo ' Step 2/2: Complete'
+fi
+
+echo 'Searching in database for matches...'
+MATCH=$(grep -P ":$@\$" $DATABASE_FILE)
+NR_MATCHES=$(echo "$MATCH" | wc -l)  
+
+# Check our results
+
+if [ $NR_MATCHES -eq 0 ]; then
+  echo "No matches found."
+  exit
+fi
+
+if [ $NR_MATCHES -gt 1 ]; then
+  echo '#### Found multiple matches, please make a choice ####'
+  echo "$MATCH" | nl
+  echo ''
+  read -p 'Enter the number of your choice: ' input
+  MATCH=$(echo "$MATCH" | nl | grep -oP "^\s+$input\s+\K.*$")
+fi
+
+NR_MATCHES=$(echo "$MATCH" | wc -l)
+
+# If we got one file to open, open it else exit.
+
+if [ $NR_MATCHES -eq 1 ]; then
+  LINE=$(echo "$MATCH" | grep -oP "^[^:]+:\K[^:]+")
+  FILE=$(echo "$MATCH" | grep -oP "^[^:]+")
+
+  echo 'Match found, opening editor.'
+  vim +$LINE $FILE -c "normal zt"
+else
+  echo 'Exiting...'
+fi
